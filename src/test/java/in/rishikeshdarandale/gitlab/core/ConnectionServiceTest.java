@@ -1,7 +1,6 @@
 package in.rishikeshdarandale.gitlab.core;
 
 import in.rishikeshdarandale.gitlab.model.Session;
-import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -22,7 +21,9 @@ import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 
 /**
- * Created by rishikesh on 31/5/16.
+ * ConnectionService test class
+ *
+ * @author Rishikesh Darandale
  */
 @RunWith(PowerMockRunner.class)
 @PrepareForTest(ClientBuilder.class)
@@ -35,7 +36,6 @@ public class ConnectionServiceTest {
 
     @Before
     public void setUp() {
-        System.out.print("In setup");
         MockitoAnnotations.initMocks(this);
 
         Mockito.when(mockBuilder.accept(MediaType.APPLICATION_JSON)).thenReturn(mockBuilder);
@@ -54,12 +54,7 @@ public class ConnectionServiceTest {
         PowerMockito.when(ClientBuilder.newClient()).thenReturn(this.mockClient);
 
         connectionService = ConnectionService.getInstance();
-    }
-
-    @After
-    public void tearDown() {
-        System.out.print("In tearDown");
-        Mockito.reset(mockResponse);
+        connectionService.setClient(mockClient);
     }
 
     @Test(expected = IllegalArgumentException.class)
@@ -69,19 +64,25 @@ public class ConnectionServiceTest {
 
     @Test(expected = AuthenticationException.class)
     public void testCreateSessionWithInvalidCredentials() throws AuthenticationException {
-        System.out.print("In test1");
-        Mockito.when(this.mockResponse.getStatus()).thenReturn(401);
-        connectionService.createSession("InValidUser", "InValidPassword");
+        // Given
+        Mockito.when(this.mockResponse.getStatus()).thenReturn(Response.Status.UNAUTHORIZED.getStatusCode());
+        // When
+        Session session = connectionService.createSession("InValidUser", "InValidPassword");
+        // Then
+        Assert.assertNull(session);
     }
 
     @Test
     public void testCreateSession() throws AuthenticationException {
-        System.out.print("In test2");
-        Mockito.when(this.mockResponse.getStatus()).thenReturn(201);
+        // Given
+        Mockito.when(this.mockResponse.getStatus()).thenReturn(Response.Status.CREATED.getStatusCode());
         Session mockSession = Mockito.mock(Session.class);
         Mockito.when(this.mockResponse.readEntity(Session.class)).thenReturn(mockSession);
         Mockito.when(mockSession.getPrivateToken()).thenReturn("your-private-token");
+        // When
         Session session = connectionService.createSession("ValidUser", "ValidPassword");
+        // Then
+        Assert.assertNotNull(session);
         Assert.assertEquals("your-private-token", session.getPrivateToken());
     }
 }

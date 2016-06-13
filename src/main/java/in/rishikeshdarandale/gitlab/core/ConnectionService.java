@@ -20,19 +20,27 @@ package in.rishikeshdarandale.gitlab.core;
 
 import com.google.common.base.Strings;
 
+import com.sun.corba.se.pept.transport.Connection;
 import in.rishikeshdarandale.gitlab.model.Session;
 import org.glassfish.jersey.jackson.JacksonFeature;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.ws.rs.client.*;
 import javax.ws.rs.core.Form;
+import javax.ws.rs.core.GenericType;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.util.List;
 
 /**
  *
  * @author Rishikesh Darandale
  */
 public class ConnectionService {
+    private static final Logger LOG = LoggerFactory.getLogger(ConnectionService.class);
     private static ConnectionService service;
     private Client client;
     private String privateToken;
@@ -51,19 +59,21 @@ public class ConnectionService {
     /**
      * Login to Gitlab using username and password to get the private token
      *
-     * @param apiUrl
+     * @param apiUrlPrefix
      * @param username
      * @param password
      * @return
      * @throws AuthenticationException
      */
-    public Session createSession(String apiUrl, String username, String password) throws AuthenticationException {
+    public Session createSession(String apiUrlPrefix, String username, String password) throws AuthenticationException {
+        LOG.info("Creating a new session for {}", username);
         Session session = null;
-        if(Strings.isNullOrEmpty(apiUrl) || Strings.isNullOrEmpty(username)
+        if(Strings.isNullOrEmpty(apiUrlPrefix) || Strings.isNullOrEmpty(username)
             || Strings.isNullOrEmpty(password) ) {
+            LOG.error("Incorrect parameters are passed.");
             throw new IllegalArgumentException("One of the connection parameter is not provided");
         }
-        WebTarget webTarget = client.target(apiUrl).path(Constants.SESSION_API_PATH);
+        WebTarget webTarget = this.getClient().target(apiUrlPrefix).path(Constants.SESSION_API_PATH);
 
         Form form = new Form();
         form.param("login", username);
@@ -73,11 +83,13 @@ public class ConnectionService {
         Response response
                 = invocationBuilder.post(Entity.entity(form, MediaType.APPLICATION_FORM_URLENCODED));
         int statusCode = response.getStatus();
-        System.out.print("Response: " + statusCode);
+        LOG.debug("Response: " + statusCode);
         if(statusCode == Response.Status.CREATED.getStatusCode()) {
-            session = (Session) response.readEntity(Session.class);
+            LOG.info("Session successfully created for {}", username);
+            session = response.readEntity(Session.class);
             privateToken = session.getPrivateToken();
         } else {
+            LOG.error("Invalid username or password provided");
             throw new AuthenticationException("Invalid username or password provided.");
         }
         return session;
@@ -99,23 +111,53 @@ public class ConnectionService {
 
     /**
      *
-     * @param apiUrl
+     * @param apiUrlPrefix
      * @param <T>
      *
      * @return a
      */
-    public <T> T get(String apiUrl, Class<T> zClass) {
+    public <T> List<T> get(String apiUrlPrefix, String apiPath, Class<T> zClass) {
         if(!Strings.isNullOrEmpty(privateToken)) {
-            WebTarget webTarget = client.target(apiUrl).path(Constants.SESSION_API_PATH);
+            WebTarget webTarget = this.getClient().target(apiUrlPrefix).path(apiPath);
             Invocation.Builder invocationBuilder =  webTarget.request()
                     .accept(MediaType.APPLICATION_JSON)
                     .header(Constants.PRIVATE_TOKEN_HEADER, privateToken);
             Response response = invocationBuilder.get();
             System.out.print("Response: " + response.getStatus());
             if(response.getStatus() == Response.Status.OK.getStatusCode()) {
-                return response.readEntity(zClass);
+                return response.readEntity(getType(zClass));
             }
         }
         return null;
+    }
+
+    public <T> List<T> get(String apiPath, Class<T> zClass) {
+        return this.get(Constants.GITLAB_API_URL, apiPath, zClass);
+    }
+
+    public Client getClient() {
+        return client;
+    }
+
+    public void setClient(Client client) {
+        this.client = client;
+    }
+
+    private <T> GenericType<List<T>> getType(final Class<T> clazz) {
+        ParameterizedType genericType = new ParameterizedType() {
+            public Type[] getActualTypeArguments() {
+                return new Type[]{clazz};
+            }
+
+            public Type getRawType() {
+                return List.class;
+            }
+
+            public Type getOwnerType() {
+                return List.class;
+            }
+        };
+        return new GenericType<List<T>>(genericType) {
+        };
     }
 }

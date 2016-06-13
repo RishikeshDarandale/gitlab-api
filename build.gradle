@@ -16,6 +16,7 @@ buildscript {
 
 apply plugin: 'idea'
 apply plugin: 'java'
+apply plugin: 'jacoco'
 apply plugin: 'maven'
 /**
  *
@@ -36,12 +37,45 @@ apply plugin: 'net.researchgate.release'
 dependencies {
   compile(group: 'com.google.guava', name: 'guava', version:'19.0')
   compile(group: 'org.glassfish.jersey.core', name: 'jersey-client', version: '2.22.2')
-  compile(group: 'org.glassfish.jersey.media', name: 'jersey-media-json-jackson', version:'2.22.2')
+  compile(group: 'org.glassfish.jersey.media', name: 'jersey-media-json-jackson', version: '2.22.2')
+  compile(group: 'org.slf4j', name: 'slf4j-api', version: '1.7.21')
 
   testCompile(group: 'junit', name: 'junit', version:'4.12')
   testCompile(group: 'org.mockito', name: 'mockito-core', version:'1.10.19')
   testCompile(group: 'org.powermock', name: 'powermock-release-with-junit-mockito-dependencies', version:'1.6.2')
 }
+
+/**
+ *
+ * jaCoCo report configuration
+ *
+ */
+test {
+  jacoco {
+    append = false
+    destinationFile = file("$buildDir/jacoco/jacocoTest.exec")
+    classDumpFile = file("$buildDir/jacoco/classpathdumps")
+  }
+}
+
+jacocoTestReport {
+  reports {
+    xml.enabled false
+    csv.enabled false
+    html.destination "${buildDir}/jacocoHtml"
+  }
+  sourceSets sourceSets.main
+  executionData = files("$buildDir/jacoco/jacocoTest.exec")
+  afterEvaluate {
+    classDirectories = files(classDirectories.files.collect {
+      fileTree(dir: it,
+               exclude: ['in/rishikeshdarandale/gitlab/model/**'])
+    })
+  }
+}
+
+// execute the test report after test task
+test.finalizedBy(jacocoTestReport)
 
 /**
  *

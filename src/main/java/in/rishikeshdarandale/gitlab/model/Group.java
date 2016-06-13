@@ -19,11 +19,14 @@
 
 package in.rishikeshdarandale.gitlab.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 /**
  * This class will hold information related to Group in gitlab.
  *
  * @author Rishikesh Darandale
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class Group {
     private Long id;
     private String name;
