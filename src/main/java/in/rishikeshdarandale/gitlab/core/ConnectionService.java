@@ -20,17 +20,16 @@ package in.rishikeshdarandale.gitlab.core;
 
 import com.google.common.base.Strings;
 
-import com.sun.corba.se.pept.transport.Connection;
+import in.rishikeshdarandale.gitlab.model.PaginatedList;
 import in.rishikeshdarandale.gitlab.model.Session;
+import org.glassfish.jersey.client.ClientProperties;
 import org.glassfish.jersey.jackson.JacksonFeature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.ws.rs.NotFoundException;
 import javax.ws.rs.client.*;
-import javax.ws.rs.core.Form;
-import javax.ws.rs.core.GenericType;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.Response;
+import javax.ws.rs.core.*;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.List;
@@ -51,7 +50,10 @@ public class ConnectionService {
 
     public static synchronized ConnectionService getInstance() {
         if(service == null) {
-            service = new ConnectionService(ClientBuilder.newClient().register(JacksonFeature.class));
+            Client client = ClientBuilder.newClient().register(JacksonFeature.class);
+            client.property(ClientProperties.CONNECT_TIMEOUT, 5000);
+            client.property(ClientProperties.READ_TIMEOUT, 5000);
+            service = new ConnectionService(client);
         }
         return service;
     }
@@ -73,15 +75,13 @@ public class ConnectionService {
             LOG.error("Incorrect parameters are passed.");
             throw new IllegalArgumentException("One of the connection parameter is not provided");
         }
-        WebTarget webTarget = this.getClient().target(apiUrlPrefix).path(Constants.SESSION_API_PATH);
 
         Form form = new Form();
         form.param("login", username);
         form.param("password", password);
 
-        Invocation.Builder invocationBuilder =  webTarget.request().accept(MediaType.APPLICATION_JSON);
-        Response response
-                = invocationBuilder.post(Entity.entity(form, MediaType.APPLICATION_FORM_URLENCODED));
+        Response response = doPostRequest(apiUrlPrefix, Constants.SESSION_API_PATH,
+                form, MediaType.APPLICATION_FORM_URLENCODED, null, MediaType.APPLICATION_JSON);
         int statusCode = response.getStatus();
         LOG.debug("Response: " + statusCode);
         if(statusCode == Response.Status.CREATED.getStatusCode()) {
@@ -109,6 +109,33 @@ public class ConnectionService {
         return this.createSession(Constants.GITLAB_API_URL, username, password);
     }
 
+    public <T> T getObject(String sudoUserName, String apiUrlPrefix,
+                           String apiPath, Class<T> zClass,
+                           MultivaluedMap<String, Object> queryParams) throws AuthenticationException{
+        if(!Strings.isNullOrEmpty(privateToken)) {
+            MultivaluedMap headers = new MultivaluedHashMap<>();
+            headers.add(Constants.PRIVATE_TOKEN_HEADER, privateToken);
+            if (!Strings.isNullOrEmpty(sudoUserName)) {
+                headers.add(Constants.SUDO_HEADER, sudoUserName);
+            }
+            Response response = doGetRequest(apiUrlPrefix, apiPath, queryParams, headers, MediaType.APPLICATION_JSON);
+            System.out.print("Response: " + response.getStatus());
+            if(response.getStatus() == Response.Status.OK.getStatusCode()) {
+                return response.readEntity(zClass);
+            } else if(response.getStatus() == Response.Status.NOT_FOUND.getStatusCode()) {
+                throw new NotFoundException();
+            } else if(response.getStatus() == Response.Status.UNAUTHORIZED.getStatusCode()) {
+                throw new AuthenticationException("Please use valid token");
+            }
+        }
+        return null;
+    }
+
+    public <T> T getObject(String sudoUserName, String apiPath,
+                           Class<T> zClass, MultivaluedMap<String, Object> queryParams) throws AuthenticationException {
+        return this.getObject(sudoUserName, Constants.GITLAB_API_URL, apiPath, zClass, queryParams);
+    }
+
     /**
      *
      * @param apiUrlPrefix
@@ -116,23 +143,30 @@ public class ConnectionService {
      *
      * @return a
      */
-    public <T> List<T> get(String apiUrlPrefix, String apiPath, Class<T> zClass) {
-        if(!Strings.isNullOrEmpty(privateToken)) {
-            WebTarget webTarget = this.getClient().target(apiUrlPrefix).path(apiPath);
-            Invocation.Builder invocationBuilder =  webTarget.request()
-                    .accept(MediaType.APPLICATION_JSON)
-                    .header(Constants.PRIVATE_TOKEN_HEADER, privateToken);
-            Response response = invocationBuilder.get();
+    public <T> PaginatedList<T> getList(String sudoUserName, String apiUrlPrefix,
+                                        String apiPath, Class<T> zClass,
+                                        MultivaluedMap<String, Object> queryParams) throws AuthenticationException{
+        if(!Strings.isNullOrEmpty(this.getPrivateToken())) {
+            MultivaluedMap headers = new MultivaluedHashMap<>();
+            headers.add(Constants.PRIVATE_TOKEN_HEADER, privateToken);
+            if (!Strings.isNullOrEmpty(sudoUserName)) {
+                headers.add(Constants.SUDO_HEADER, sudoUserName);
+            }
+            Response response = doGetRequest(apiUrlPrefix, apiPath, queryParams, headers, MediaType.APPLICATION_JSON);
             System.out.print("Response: " + response.getStatus());
             if(response.getStatus() == Response.Status.OK.getStatusCode()) {
-                return response.readEntity(getType(zClass));
+                List<T> tList = response.readEntity(getType(zClass));
+                return getPaginatedList(tList, response);
+            } else if(response.getStatus() == Response.Status.UNAUTHORIZED.getStatusCode()) {
+                throw new AuthenticationException("Please use valid token");
             }
         }
         return null;
     }
 
-    public <T> List<T> get(String apiPath, Class<T> zClass) {
-        return this.get(Constants.GITLAB_API_URL, apiPath, zClass);
+    public <T> PaginatedList<T> getList(String sudoUserName, String apiPath, Class<T> zClass,
+                                        MultivaluedMap<String, Object> queryParams) throws AuthenticationException {
+        return this.getList(sudoUserName, Constants.GITLAB_API_URL, apiPath, zClass, queryParams);
     }
 
     public Client getClient() {
@@ -141,6 +175,51 @@ public class ConnectionService {
 
     public void setClient(Client client) {
         this.client = client;
+    }
+
+    public String getPrivateToken() {
+        return privateToken;
+    }
+
+    public void setPrivateToken(String privateToken) {
+        this.privateToken = privateToken;
+    }
+
+    private <T> Response doPostRequest(String apiUrlPrefix, String apiPath,
+                                       T entity, String postEntityMediaType,
+                                       MultivaluedMap<String, Object> headers, String ... acceptMediaTypes) {
+        WebTarget webTarget = this.getClient().target(apiUrlPrefix).path(apiPath);
+        Invocation.Builder invocationBuilder =  webTarget.request().accept(acceptMediaTypes).headers(headers);
+        return invocationBuilder.post(Entity.entity(entity, postEntityMediaType));
+    }
+
+    private <T> PaginatedList<T> getPaginatedList(List<T> t, Response response) {
+        return new PaginatedList<T>(t, convertToZeroIfNullOrEmpty(response.getHeaderString(Constants.X_TOTAL)),
+                convertToZeroIfNullOrEmpty(response.getHeaderString(Constants.X_TOTAL_PAGES)),
+                convertToZeroIfNullOrEmpty(response.getHeaderString(Constants.X_PER_PAGE)),
+                convertToZeroIfNullOrEmpty(response.getHeaderString(Constants.X_PAGE)),
+                convertToZeroIfNullOrEmpty(response.getHeaderString(Constants.X_PREVIOUS_PAGE)),
+                convertToZeroIfNullOrEmpty(response.getHeaderString(Constants.X_NEXT_PAGE)));
+    }
+
+    private Integer convertToZeroIfNullOrEmpty(String value) {
+        return Integer.parseInt(
+                Strings.padStart(Strings.nullToEmpty(value), 1, '0'));
+    }
+
+    private Response doGetRequest(String apiUrlPrefix, String apiPath,
+                                  MultivaluedMap<String, Object> queryParams,
+                                  MultivaluedMap<String, Object> headers, String ... mediaTypes) {
+        WebTarget webTarget = this.getClient().target(apiUrlPrefix).path(apiPath);
+        if (queryParams!= null && queryParams.keySet().size() > 0 ) {
+            for(String key : queryParams.keySet()) {
+                webTarget = webTarget.queryParam(key, queryParams.get(key));
+            }
+        }
+        Invocation.Builder invocationBuilder =  webTarget.request()
+                .accept(mediaTypes)
+                .headers(headers);
+        return invocationBuilder.get();
     }
 
     private <T> GenericType<List<T>> getType(final Class<T> clazz) {

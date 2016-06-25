@@ -16,25 +16,10 @@
  *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  *  DEALINGS IN THE SOFTWARE.
  */
-package in.rishikeshdarandale.gitlab.core;
+package in.rishikeshdarandale.gitlab.service;
 
 /**
- * Created by rishikesh on 5/5/16.
+ * Created by rishikesh on 25/6/16.
  */
-public class Constants {
-    public final static String GITLAB_API_URL = "https://gitlab.com/api/v3";
-    public final static String PRIVATE_TOKEN_HEADER = "PRIVATE-TOKEN";
-    public final static String SUDO_HEADER = "SUDO";
-
-    public final static String X_TOTAL = "X-Total";
-    public final static String X_TOTAL_PAGES ="X-Total-Pages";
-    public final static String X_PER_PAGE = "X-Per-Page";
-    public final static String X_PAGE = "X-Page";
-    public final static String X_PREVIOUS_PAGE = "X-Prev-Page";
-    public final static String X_NEXT_PAGE = "X-Next-Page";
-
-    public final static String SESSION_API_PATH = "session";
-    public final static String PROJECTS_API_PATH = "projects";
-
-
+public class GroupService {
 }
